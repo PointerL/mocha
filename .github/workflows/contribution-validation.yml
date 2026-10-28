@@ -1,0 +1,49 @@
+name: Delayed fail-zero Linux validation
+on:
+  pull_request:
+    branches: [workflows/validation-base-20261028]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ecb99bb480074b40d141ae8e0e56ca2077e8d834
+          fetch-depth: 2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Confirm failing baseline and passing regression
+        shell: bash
+        run: |
+          cp lib/runner.js "$RUNNER_TEMP/fixed-runner.js"
+          git show 5b5afa7b12e3f76f4e0c6afa12e960c0b378358c:lib/runner.js > lib/runner.js
+          set +e
+          node bin/mocha.js --timeout 5000 test/integration/options/failZero.spec.cjs > "$RUNNER_TEMP/red.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/red.log"
+          test "$status" -eq 2
+          grep -q '2 failing' "$RUNNER_TEMP/red.log"
+          cp "$RUNNER_TEMP/fixed-runner.js" lib/runner.js
+          git diff --exit-code
+          node bin/mocha.js --timeout 5000 test/integration/options/failZero.spec.cjs test/integration/options/delay.spec.cjs
+      - name: Formatting, runtime lint, types and smoke
+        run: |
+          npm run format:check
+          npm run lint:code
+          npm run lint:knip
+          npm run lint:installed-check
+          npm run tsc
+          npm run test-smoke
+      - name: Full Node suites
+        run: npm run test-node
+      - name: Full browser suites
+        run: npm run test-browser
+      - name: Verify source tree unchanged
+        run: git diff --exit-code
